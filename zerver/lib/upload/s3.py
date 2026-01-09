@@ -1,4 +1,3 @@
-import logging
 import os
 import secrets
 from collections.abc import Callable, Iterator
@@ -176,11 +175,8 @@ class S3UploadBackend(ZulipUploadBackend):
         try:
             key.load()
         except botocore.exceptions.ClientError:
-            file_name = path_id.split("/")[-1]
-            logging.warning(
-                "%s does not exist. Its entry in the database will be removed.", file_name
-            )
             return False
+
         key.delete()
         return True
 
@@ -516,10 +512,8 @@ class S3UploadBackend(ZulipUploadBackend):
         return self.get_export_tarball_url(realm, key.key)
 
     @override
-    def delete_export_tarball(self, export_path: str) -> str | None:
+    def delete_export_tarball(self, export_path: str) -> None:
         assert export_path.startswith("/")
         path_id = export_path.removeprefix("/")
         bucket = self.export_bucket or self.avatar_bucket
-        if self.delete_file_from_s3(path_id, bucket):
-            return export_path
-        return None
+        self.delete_file_from_s3(path_id, bucket)

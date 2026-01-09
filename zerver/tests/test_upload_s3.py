@@ -14,7 +14,7 @@ from mypy_boto3_s3.type_defs import CopySourceTypeDef
 
 import zerver.lib.upload
 from zerver.actions.create_user import do_create_user
-from zerver.actions.user_settings import do_scrub_avatar_image
+from zerver.actions.user_settings import do_scrub_avatar_images
 from zerver.lib.avatar_hash import user_avatar_path
 from zerver.lib.create_user import copy_default_settings
 from zerver.lib.test_classes import ZulipTestCase
@@ -185,14 +185,7 @@ class S3Test(ZulipTestCase):
         bucket = create_s3_buckets(settings.S3_AUTH_UPLOADS_BUCKET)[0]
         with self.assertRaises(botocore.exceptions.ClientError):
             bucket.Object("non-existent-file").load()
-        with self.assertLogs(level="WARNING") as warn_log:
-            self.assertEqual(False, delete_message_attachment("non-existent-file"))
-        self.assertEqual(
-            warn_log.output,
-            [
-                "WARNING:root:non-existent-file does not exist. Its entry in the database will be removed."
-            ],
-        )
+        self.assertEqual(False, delete_message_attachment("non-existent-file"))
 
     @use_s3_backend
     def test_all_message_attachments(self) -> None:
@@ -525,7 +518,7 @@ class S3Test(ZulipTestCase):
         self.assertIsNotNone(bucket.Object(avatar_original_image_path_id))
         self.assertIsNotNone(bucket.Object(avatar_medium_path_id))
 
-        do_scrub_avatar_image(user, acting_user=user)
+        do_scrub_avatar_images(user, acting_user=user)
 
         self.assertEqual(user.avatar_source, UserProfile.AVATAR_FROM_GRAVATAR)
 
@@ -704,13 +697,10 @@ class S3Test(ZulipTestCase):
         self.assertIn("Expires", params)
 
         # Delete the tarball.
-        with self.assertLogs(level="WARNING") as warn_log:
-            self.assertIsNone(delete_export_tarball("/not_a_file"))
-        self.assertEqual(
-            warn_log.output,
-            ["WARNING:root:not_a_file does not exist. Its entry in the database will be removed."],
-        )
-        self.assertEqual(delete_export_tarball(parsed_url.path), parsed_url.path)
+        bucket.Object(parsed_url.path.removeprefix("/")).load()
+        delete_export_tarball(parsed_url.path)
+        with self.assertRaises(botocore.exceptions.ClientError):
+            bucket.Object(parsed_url.path.removeprefix("/")).load()
 
     @override_settings(S3_EXPORT_BUCKET="")
     @use_s3_backend
@@ -725,6 +715,7 @@ class S3Test(ZulipTestCase):
             f.write("dummy")
 
         url = upload_export_tarball(user_profile.realm, tarball_path)
+        parsed_url = urlsplit(url)
         result = re.search(re.compile(r"/([0-9a-fA-F]{32})/"), url)
         if result is not None:
             hex_value = result.group(1)
@@ -732,8 +723,10 @@ class S3Test(ZulipTestCase):
         self.assertEqual(url, expected_url)
 
         # Delete the tarball.
-        path_id = urlsplit(url).path
-        self.assertEqual(delete_export_tarball(path_id), path_id)
+        bucket.Object(parsed_url.path.removeprefix("/")).load()
+        delete_export_tarball(parsed_url.path)
+        with self.assertRaises(botocore.exceptions.ClientError):
+            bucket.Object(parsed_url.path.removeprefix("/")).load()
 
     @mock_aws
     def test_tarball_upload_avatar_bucket_download_export_bucket(self) -> None:

@@ -275,6 +275,7 @@ class LocalStorageTest(UploadSerializeMixin, ZulipTestCase):
         url = upload_export_tarball(user_profile.realm, tarball_path)
         self.assertTrue(os.path.isfile(os.path.join(settings.LOCAL_AVATARS_DIR, tarball_path)))
 
+        parsed_url = urlsplit(url)
         result = re.search(re.compile(r"([A-Za-z0-9\-_]{24})"), url)
         if result is not None:
             random_name = result.group(1)
@@ -282,11 +283,18 @@ class LocalStorageTest(UploadSerializeMixin, ZulipTestCase):
         self.assertEqual(expected_url, url)
 
         # Delete the tarball.
-        with self.assertLogs(level="WARNING") as warn_log:
-            self.assertIsNone(delete_export_tarball("/not_a_file"))
-        self.assertEqual(
-            warn_log.output,
-            ["WARNING:root:not_a_file does not exist. Its entry in the database will be removed."],
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    settings.LOCAL_AVATARS_DIR, parsed_url.path.removeprefix("/user_avatars/")
+                )
+            )
         )
-        path_id = urlsplit(url).path
-        self.assertEqual(delete_export_tarball(path_id), path_id)
+        delete_export_tarball(parsed_url.path)
+        self.assertFalse(
+            os.path.isfile(
+                os.path.join(
+                    settings.LOCAL_AVATARS_DIR, parsed_url.path.removeprefix("/user_avatars/")
+                )
+            )
+        )
